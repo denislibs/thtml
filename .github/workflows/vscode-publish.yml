@@ -1,0 +1,58 @@
+name: Publish VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+  workflow_dispatch:
+    inputs:
+      pre_release:
+        description: 'Publish as pre-release'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  publish:
+    name: Publish to VS Code Marketplace
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @thtml/core
+        run: pnpm --filter @thtml/core build
+
+      - name: Build @thtml/language-server
+        run: pnpm --filter @thtml/language-server build
+
+      - name: Build extension
+        run: pnpm --filter thtml-vscode build
+
+      - name: Package extension
+        run: pnpm --filter thtml-vscode exec vsce package
+
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thtml-vscode.vsix
+          path: packages/vscode-extension/*.vsix
+
+      - name: Publish to Marketplace
+        run: pnpm --filter thtml-vscode exec vsce publish --no-dependencies ${{ inputs.pre_release == 'true' && '--pre-release' || '' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
