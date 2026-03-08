@@ -264,14 +264,21 @@ export class CompletionProvider {
     );
     if (completionInfo === undefined) return [];
 
-    return completionInfo.entries.map((entry): CompletionItem => ({
-      label: entry.name,
-      kind: tsKindToLspKind(entry.kind),
-      detail: entry.kindModifiers.length > 0 ? entry.kindModifiers : undefined,
-      sortText: entry.sortText,
-      // Preserve any insert-text from TS (e.g., optional-chaining snippets).
-      insertText: entry.insertText,
-    }));
+    return completionInfo.entries.map((entry): CompletionItem => {
+      const item: CompletionItem = {
+        label: entry.name,
+        kind: tsKindToLspKind(entry.kind),
+        sortText: entry.sortText,
+      };
+      const mods = entry.kindModifiers;
+      if (mods !== undefined && mods.length > 0) {
+        item.detail = mods;
+      }
+      if (entry.insertText !== undefined) {
+        item.insertText = entry.insertText;
+      }
+      return item;
+    });
   }
 
   // ---------------------------------------------------------------------------

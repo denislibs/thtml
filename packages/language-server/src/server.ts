@@ -158,15 +158,11 @@ connection.onHover((params) => {
 // Error handling
 // ---------------------------------------------------------------------------
 
-connection.onError((error) => {
-  connection.console.error(`Connection error: ${String(error)}`);
-});
-
-process.on("uncaughtException", (err) => {
+process.on("uncaughtException", (err: Error) => {
   connection.console.error(`Uncaught exception: ${String(err)}`);
 });
 
-process.on("unhandledRejection", (reason) => {
+process.on("unhandledRejection", (reason: unknown) => {
   connection.console.error(`Unhandled rejection: ${String(reason)}`);
 });
 
