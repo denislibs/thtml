@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build @thtml/core
+        run: pnpm --filter @thtml/core build
+
       - name: Build extension (esbuild bundles core + language-server)
         run: pnpm --filter thtml-vscode build
 
