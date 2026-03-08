@@ -37,17 +37,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build @thtml/core
-        run: pnpm --filter @thtml/core build
-
-      - name: Build @thtml/language-server
-        run: pnpm --filter @thtml/language-server build
-
-      - name: Build extension
+      - name: Build extension (esbuild bundles core + language-server)
         run: pnpm --filter thtml-vscode build
 
       - name: Package .vsix
-        run: pnpm --filter thtml-vscode exec vsce package
+        run: pnpm --filter thtml-vscode exec vsce package --no-dependencies
         working-directory: packages/vscode-extension
 
       - name: Upload .vsix artifact
@@ -59,7 +53,7 @@ jobs:
       # VS Code Marketplace (requires VSCE_TOKEN secret — Azure DevOps PAT)
       - name: Publish to VS Code Marketplace
         if: ${{ env.VSCE_TOKEN != '' }}
-        run: pnpm --filter thtml-vscode exec vsce publish ${{ inputs.pre_release == 'true' && '--pre-release' || '' }}
+        run: pnpm --filter thtml-vscode exec vsce publish --no-dependencies ${{ inputs.pre_release == 'true' && '--pre-release' || '' }}
         env:
           VSCE_PAT: ${{ env.VSCE_TOKEN }}
         continue-on-error: true
