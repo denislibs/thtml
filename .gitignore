@@ -1,3 +1,6 @@
+# Examples (local only)
+examples/
+
 # Dependencies
 node_modules/
 

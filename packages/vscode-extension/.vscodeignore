@@ -7,5 +7,4 @@ src/**
 tsconfig.json
 .gitignore
 .npmignore
-node_modules/**
 assets/icon.svg
