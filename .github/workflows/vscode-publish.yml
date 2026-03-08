@@ -47,7 +47,7 @@ jobs:
         run: pnpm --filter thtml-vscode build
 
       - name: Deploy extension with flat node_modules
-        run: pnpm --filter thtml-vscode deploy /tmp/thtml-ext-deploy
+        run: pnpm --filter thtml-vscode deploy --legacy /tmp/thtml-ext-deploy
 
       - name: Copy dist to deploy directory
         run: cp -r packages/vscode-extension/dist /tmp/thtml-ext-deploy/
