@@ -40,23 +40,43 @@ jobs:
       - name: Build @thtml/core
         run: pnpm --filter @thtml/core build
 
+      - name: Build @thtml/language-server
+        run: pnpm --filter @thtml/language-server build
+
       - name: Build extension
         run: pnpm --filter thtml-vscode build
 
+      - name: Deploy extension with flat node_modules
+        run: pnpm --filter thtml-vscode deploy /tmp/thtml-ext-deploy
+
+      - name: Copy dist to deploy directory
+        run: cp -r packages/vscode-extension/dist /tmp/thtml-ext-deploy/
+
+      - name: Install vsce globally
+        run: npm install -g @vscode/vsce
+
       - name: Package .vsix
-        run: pnpm --filter thtml-vscode exec vsce package --no-dependencies
-        working-directory: packages/vscode-extension
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            delete p.scripts['vscode:prepublish'];
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2));
+          "
+          vsce package
+        working-directory: /tmp/thtml-ext-deploy
 
       - name: Upload .vsix artifact
         uses: actions/upload-artifact@v4
         with:
           name: thtml-vscode.vsix
-          path: packages/vscode-extension/*.vsix
+          path: /tmp/thtml-ext-deploy/*.vsix
 
       # VS Code Marketplace (requires VSCE_TOKEN secret — Azure DevOps PAT)
       - name: Publish to VS Code Marketplace
         if: ${{ env.VSCE_TOKEN != '' }}
-        run: pnpm --filter thtml-vscode exec vsce publish --no-dependencies ${{ inputs.pre_release == 'true' && '--pre-release' || '' }}
+        run: vsce publish ${{ inputs.pre_release == 'true' && '--pre-release' || '' }}
+        working-directory: /tmp/thtml-ext-deploy
         env:
           VSCE_PAT: ${{ env.VSCE_TOKEN }}
         continue-on-error: true
@@ -64,5 +84,5 @@ jobs:
       # Open VSX Registry (alternative — register at https://open-vsx.org with GitHub)
       - name: Publish to Open VSX
         if: ${{ env.OVSX_TOKEN != '' }}
-        run: npx ovsx publish packages/vscode-extension/*.vsix --pat ${{ env.OVSX_TOKEN }}
+        run: npx ovsx publish /tmp/thtml-ext-deploy/*.vsix --pat ${{ env.OVSX_TOKEN }}
         continue-on-error: true

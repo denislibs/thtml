@@ -110,11 +110,11 @@
     }
   },
   "scripts": {
-    "build": "node esbuild.mjs --production",
-    "dev": "node esbuild.mjs",
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
     "vscode:prepublish": "pnpm run build",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -124,7 +124,6 @@
   "devDependencies": {
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^2.24.0",
-    "esbuild": "^0.21.5",
     "typescript": "^5.4.5"
   }
 }

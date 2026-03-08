@@ -98,7 +98,7 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
   // extension under node_modules. During development it lives in the sibling
   // package's dist directory.
   const serverModule = context.asAbsolutePath(
-    path.join("dist", "server.js")
+    path.join("node_modules", "@thtml", "language-server", "dist", "server.js")
   );
 
   const config = workspace.getConfiguration("thtml");
