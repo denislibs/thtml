@@ -1,5 +1,6 @@
 {
   "name": "thtml-vscode",
+  "private": true,
   "displayName": "thtml — HTML Template Engine",
   "description": "Syntax highlighting, autocomplete and type checking for .thtml template files",
   "version": "0.1.0",
