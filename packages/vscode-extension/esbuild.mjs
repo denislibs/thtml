@@ -5,12 +5,6 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const production = process.argv.includes("--production");
 
-// Map workspace packages directly to their TypeScript source,
-// bypassing pnpm symlinks and the need for pre-built dist/ files.
-const alias = {
-  "@thtml/core": resolve(__dirname, "../core/src/index.ts"),
-};
-
 /** @type {import('esbuild').BuildOptions} */
 const shared = {
   bundle: true,
@@ -20,7 +14,6 @@ const shared = {
   sourcemap: !production,
   minify: production,
   logLevel: "info",
-  alias,
 };
 
 // Bundle the extension entry point (vscode API is provided by the host).
@@ -33,6 +26,7 @@ await esbuild.build({
 
 // Bundle the language server into a self-contained file so it can be
 // spawned as a child process without any node_modules present.
+// NOTE: @thtml/core must be built before this step (dist/index.js must exist).
 await esbuild.build({
   ...shared,
   entryPoints: [resolve(__dirname, "../language-server/src/server.ts")],
