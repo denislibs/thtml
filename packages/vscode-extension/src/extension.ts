@@ -20,6 +20,7 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
+  Trace,
   TransportKind,
 } from "vscode-languageclient/node";
 
@@ -127,11 +128,10 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
       configurationSection: "thtml",
       fileEvents: workspace.createFileSystemWatcher("**/*.thtml"),
     },
-    outputChannel,
-    traceOutputChannel: outputChannel,
-    middleware: {
-      // Reserved for future middleware hooks.
-    },
+    // Conditionally spread to satisfy exactOptionalPropertyTypes
+    ...(outputChannel !== undefined
+      ? { outputChannel, traceOutputChannel: outputChannel }
+      : {}),
   };
 
   client = new LanguageClient(
@@ -141,8 +141,13 @@ async function startLanguageServer(context: ExtensionContext): Promise<void> {
     clientOptions
   );
 
-  if (traceLevel !== "off") {
-    void client.setTrace(traceLevel as "messages" | "verbose");
+  const traceMap: Record<string, Trace> = {
+    messages: Trace.Messages,
+    verbose: Trace.Verbose,
+  };
+  const trace = traceMap[traceLevel];
+  if (trace !== undefined) {
+    void client.setTrace(trace);
   }
 
   await client.start();
