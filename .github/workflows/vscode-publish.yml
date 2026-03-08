@@ -14,7 +14,7 @@ on:
 
 jobs:
   publish:
-    name: Publish to VS Code Marketplace
+    name: Build & Publish Extension
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,8 +43,9 @@ jobs:
       - name: Build extension
         run: pnpm --filter thtml-vscode build
 
-      - name: Package extension
-        run: pnpm --filter thtml-vscode exec vsce package
+      - name: Package .vsix
+        run: pnpm --filter thtml-vscode exec vsce package --no-dependencies
+        working-directory: packages/vscode-extension
 
       - name: Upload .vsix artifact
         uses: actions/upload-artifact@v4
@@ -52,7 +53,16 @@ jobs:
           name: thtml-vscode.vsix
           path: packages/vscode-extension/*.vsix
 
-      - name: Publish to Marketplace
+      # VS Code Marketplace (requires VSCE_TOKEN secret — Azure DevOps PAT)
+      - name: Publish to VS Code Marketplace
+        if: secrets.VSCE_TOKEN != ''
         run: pnpm --filter thtml-vscode exec vsce publish --no-dependencies ${{ inputs.pre_release == 'true' && '--pre-release' || '' }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
+        continue-on-error: true
+
+      # Open VSX Registry (alternative — register at https://open-vsx.org with GitHub)
+      - name: Publish to Open VSX
+        if: secrets.OVSX_TOKEN != ''
+        run: npx ovsx publish packages/vscode-extension/*.vsix --pat ${{ secrets.OVSX_TOKEN }}
+        continue-on-error: true
