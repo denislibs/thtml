@@ -1,0 +1,30 @@
+{
+  "name": "thtml-monorepo",
+  "version": "0.0.1",
+  "private": true,
+  "description": "TypeScript HTML template engine monorepo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/denislibs/thtml"
+  },
+  "homepage": "https://github.com/denislibs/thtml#readme",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "dev": "pnpm -r --parallel run dev",
+    "clean": "pnpm -r run clean && rm -rf node_modules",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.7",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

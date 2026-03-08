@@ -1,0 +1,55 @@
+{
+  "name": "@thtml/language-server",
+  "version": "0.1.0",
+  "description": "Language Server Protocol implementation for thtml templates",
+  "license": "MIT",
+  "author": "thtml contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/denislibs/thtml",
+    "directory": "packages/language-server"
+  },
+  "homepage": "https://github.com/denislibs/thtml/tree/main/packages/language-server#readme",
+  "bugs": {
+    "url": "https://github.com/denislibs/thtml/issues"
+  },
+  "keywords": ["thtml", "language-server", "lsp", "typescript", "html"],
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      }
+    }
+  },
+  "bin": {
+    "thtml-language-server": "./dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@thtml/core": "workspace:*",
+    "typescript": "^5.4.5",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-uri": "^3.0.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
