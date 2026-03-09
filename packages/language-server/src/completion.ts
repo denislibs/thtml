@@ -143,6 +143,45 @@ function getCursorContext(source: string, offset: number): CursorContext {
 }
 
 // ---------------------------------------------------------------------------
+// Partial expression extraction (fallback when AST is unavailable)
+// ---------------------------------------------------------------------------
+
+/**
+ * Given the raw source and a cursor offset, try to extract the partial
+ * expression the user is currently typing inside `{{ }}` or `{% %}`.
+ *
+ * Returns the trimmed expression text up to the cursor, or `null` when the
+ * cursor is not inside any template delimiter.
+ */
+function extractPartialExpr(source: string, offset: number): string | null {
+  const before = source.slice(0, offset);
+
+  const lastOpenExpr = before.lastIndexOf("{{");
+  const lastCloseExpr = before.lastIndexOf("}}");
+  const lastOpenBlock = before.lastIndexOf("{%");
+  const lastCloseBlock = before.lastIndexOf("%}");
+
+  const insideExpr = lastOpenExpr !== -1 && lastOpenExpr > lastCloseExpr;
+  const insideBlock = lastOpenBlock !== -1 && lastOpenBlock > lastCloseBlock;
+
+  if (insideExpr && (!insideBlock || lastOpenExpr > lastOpenBlock)) {
+    // Inside {{ ... }}: take everything after {{, trim, strip leading !
+    const raw = before.slice(lastOpenExpr + 2).trim();
+    return raw.startsWith("!") ? raw.slice(1).trimStart() : raw;
+  }
+
+  if (insideBlock) {
+    // Inside {% ... %}: skip the first keyword, take the rest as expression
+    const raw = before.slice(lastOpenBlock + 2).trimStart();
+    const spaceIdx = raw.search(/\s/);
+    if (spaceIdx === -1) return null; // only keyword typed so far, no expression
+    return raw.slice(spaceIdx).trim();
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // TypeScript kind → LSP kind conversion
 // ---------------------------------------------------------------------------
 
@@ -217,8 +256,17 @@ export class CompletionProvider {
     const ctx = getCursorContext(source, offset);
 
     switch (ctx.kind) {
-      case "block":
-        return this.blockCompletions();
+      case "block": {
+        const structural = this.blockCompletions();
+        // Also try TypeScript completions for the expression inside the block
+        // (e.g. `{% if user. %}` — offer user's members alongside keywords).
+        const thtmlDocBlock = thtmlDocs.get(params.textDocument.uri);
+        if (thtmlDocBlock !== undefined) {
+          const tsItems = this.typescriptCompletions(offset, thtmlDocBlock, checker, source);
+          if (tsItems.length > 0) return [...tsItems, ...structural];
+        }
+        return structural;
+      }
 
       case "expression": {
         const structural = [
@@ -228,11 +276,7 @@ export class CompletionProvider {
         // Attempt TypeScript-backed completions.
         const thtmlDoc = thtmlDocs.get(params.textDocument.uri);
         if (thtmlDoc !== undefined) {
-          const tsItems = this.typescriptCompletions(
-            offset,
-            thtmlDoc,
-            checker
-          );
+          const tsItems = this.typescriptCompletions(offset, thtmlDoc, checker, source);
           // TypeScript completions take priority; structural items are appended
           // only when TS has nothing to offer.
           if (tsItems.length > 0) return tsItems;
@@ -253,15 +297,27 @@ export class CompletionProvider {
   private typescriptCompletions(
     thtmlOffset: number,
     thtmlDoc: ThtmlDocument,
-    checker: TemplateTypeChecker
+    checker: TemplateTypeChecker,
+    source: string
   ): CompletionItem[] {
     const virtualOffset = thtmlDoc.thtmlOffsetToVirtual(thtmlOffset);
-    if (virtualOffset === null) return [];
 
-    const completionInfo = checker.getCompletions(
-      thtmlDoc.virtualFile,
-      virtualOffset
-    );
+    if (virtualOffset !== null) {
+      return this.completionsAtVirtualOffset(thtmlDoc.virtualFile, virtualOffset, checker);
+    }
+
+    // Fallback: the cursor is outside any mapped expression (e.g. the parse
+    // failed, or the expression is still being typed).  Extract the partial
+    // expression from the raw source and query TS with a temporary virtual file.
+    return this.partialExpressionCompletions(thtmlOffset, source, thtmlDoc, checker);
+  }
+
+  private completionsAtVirtualOffset(
+    virtualFile: string,
+    virtualOffset: number,
+    checker: TemplateTypeChecker
+  ): CompletionItem[] {
+    const completionInfo = checker.getCompletions(virtualFile, virtualOffset);
     if (completionInfo === undefined) return [];
 
     return completionInfo.entries.map((entry): CompletionItem => {
@@ -279,6 +335,34 @@ export class CompletionProvider {
       }
       return item;
     });
+  }
+
+  /**
+   * Fallback completion path: extract a partial expression from raw source
+   * text (when the AST is unavailable or the cursor is between mappings) and
+   * synthesise a one-shot virtual TypeScript file to query completions from.
+   */
+  private partialExpressionCompletions(
+    thtmlOffset: number,
+    source: string,
+    thtmlDoc: ThtmlDocument,
+    checker: TemplateTypeChecker
+  ): CompletionItem[] {
+    const partial = extractPartialExpr(source, thtmlOffset);
+    if (partial === null || partial.length === 0) return [];
+
+    const completionInfo = checker.getCompletionsForExpression(
+      thtmlDoc.frontmatter,
+      partial,
+      partial.length
+    );
+    if (completionInfo === undefined) return [];
+
+    return completionInfo.entries.map((entry): CompletionItem => ({
+      label: entry.name,
+      kind: tsKindToLspKind(entry.kind),
+      sortText: entry.sortText,
+    }));
   }
 
   // ---------------------------------------------------------------------------

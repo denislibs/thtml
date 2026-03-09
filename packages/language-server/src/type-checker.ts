@@ -16,6 +16,23 @@ import ts from "typescript";
 // ---------------------------------------------------------------------------
 
 /**
+ * Describes a single `{% for var of iterable %}` scope that wraps an
+ * extracted expression.  Used to emit correct TypeScript variable declarations
+ * so that loop variables are typed properly in the virtual file.
+ */
+export interface ForScopeVar {
+  /** The loop variable name, e.g. `"item"`. */
+  variable: string;
+  /** Optional index variable, e.g. `"i"` in `{% for item, i of items %}`. */
+  indexVariable: string | null;
+  /**
+   * The raw iterable expression from the template, e.g. `"recentActivity"` or
+   * `"post.tags"` for a nested loop.
+   */
+  iterable: string;
+}
+
+/**
  * A single template expression extracted from a .thtml document together with
  * both its position in the virtual TypeScript file and its original position
  * in the .thtml file.
@@ -132,20 +149,28 @@ export class TemplateTypeChecker {
    * // <frontmatter interface declarations>
    * declare const __ctx: Context;   // or Record<string,unknown> as fallback
    *
-   * void (__ctx.<expr1>);
-   * void (__ctx.<expr2>);
+   * // Loop variable declarations (for expressions inside {% for %} blocks)
+   * declare const item: (typeof __ctx.recentActivity)[number];
+   *
+   * void (__ctx.<expr1>);          // context expression
+   * void (item.time);              // loop-variable expression (no __ctx. prefix)
    * ```
    *
    * For each expression we record two offsets:
    * - `virtualOffset` — points to expression[0] inside the virtual file
    * - `thtmlOffset`   — points to expression[0] inside the .thtml source
    *
-   * The mapping is intentional: `__ctx.` is a fixed 7-character prefix for
-   * every expression, so `virtualOffset = position_of_open_paren + "__ctx.".length`.
+   * Loop variable expressions use `void (expr)` (6-char preamble) instead of
+   * `void (__ctx.expr)` (12-char preamble).  `virtualOffset` is adjusted
+   * accordingly so position translation remains correct.
    */
   createVirtualFile(
     frontmatter: string | null,
-    expressions: ReadonlyArray<{ expression: string; thtmlOffset: number }>
+    expressions: ReadonlyArray<{
+      expression: string;
+      thtmlOffset: number;
+      forScopes?: ReadonlyArray<ForScopeVar>;
+    }>
   ): VirtualFileResult {
     const lines: string[] = [];
     const mappedExpressions: MappedExpression[] = [];
@@ -167,17 +192,55 @@ export class TemplateTypeChecker {
     }
     lines.push("");
 
+    // 3. Collect all loop variable names across all expressions so we can
+    //    determine which identifiers should be accessed without __ctx. prefix.
+    const allLoopVarNames = new Set<string>();
+    for (const expr of expressions) {
+      for (const scope of (expr.forScopes ?? [])) {
+        allLoopVarNames.add(scope.variable);
+        if (scope.indexVariable !== null) allLoopVarNames.add(scope.indexVariable);
+      }
+    }
+
+    // 4. Emit one `declare const` per unique loop variable in dependency order
+    //    (outermost loop first so inner loop vars can reference outer ones).
+    const seenLoopVars = new Set<string>();
+    for (const expr of expressions) {
+      for (const scope of (expr.forScopes ?? [])) {
+        if (seenLoopVars.has(scope.variable)) continue;
+        seenLoopVars.add(scope.variable);
+
+        // If the iterable's leading identifier is itself a loop variable (nested
+        // loop), access it directly; otherwise prefix with __ctx.
+        const iterableFirstIdent =
+          scope.iterable.match(/^[a-zA-Z_$][a-zA-Z_$\d]*/)?.[0] ?? "";
+        const iterableAccess = allLoopVarNames.has(iterableFirstIdent)
+          ? scope.iterable
+          : `__ctx.${scope.iterable}`;
+
+        lines.push(
+          `declare const ${scope.variable}: (typeof ${iterableAccess})[number];`
+        );
+        if (scope.indexVariable !== null) {
+          lines.push(`declare const ${scope.indexVariable}: number;`);
+        }
+      }
+    }
+    if (seenLoopVars.size > 0) lines.push("");
+
     // Build the partial virtual content up to the expressions section so we
     // can compute accurate byte offsets.
     let prefix = lines.join("\n");
 
-    // 3. Emit one `void` statement per expression.
+    // 5. Emit one `void` statement per expression.
     for (const { expression, thtmlOffset } of expressions) {
-      // `virtualOffset` points to expression[0] inside the virtual file.
-      // Layout of each generated line: `void (__ctx.<expression>);\n`
-      // The preamble `void (__ctx.` is 12 characters; virtualOffset lands
-      // right after it, at the first character of the expression text.
-      const voidPreamble = "void (__ctx.";
+      // If the expression's leading identifier is a loop variable, access it
+      // directly (void (expr)); otherwise go through __ctx (void (__ctx.expr)).
+      const exprFirstIdent =
+        expression.match(/^[a-zA-Z_$][a-zA-Z_$\d]*/)?.[0] ?? "";
+      const isLoopVar = allLoopVarNames.has(exprFirstIdent);
+
+      const voidPreamble = isLoopVar ? "void (" : "void (__ctx.";
       const virtualOffset = prefix.length + voidPreamble.length;
 
       mappedExpressions.push({ expression, virtualOffset, thtmlOffset });
@@ -236,6 +299,35 @@ export class TemplateTypeChecker {
       ...this.languageService.getSyntacticDiagnostics(virtualFileName),
       ...this.languageService.getSemanticDiagnostics(virtualFileName),
     ];
+  }
+
+  /**
+   * Get completions for a partial expression without permanently modifying
+   * any registered virtual file.  Uses a temporary file that is created and
+   * removed within this call.
+   *
+   * Useful for fallback completion when the AST is unavailable or the cursor
+   * sits outside all mapped expressions (e.g. the user is mid-typing).
+   */
+  getCompletionsForExpression(
+    frontmatter: string | null,
+    expression: string,
+    cursorOffset: number
+  ): ts.CompletionInfo | undefined {
+    const tempName = "__thtml_completion_temp__.virtual.ts";
+    const { virtualContent, mappedExpressions } = this.createVirtualFile(
+      frontmatter,
+      [{ expression, thtmlOffset: 0 }]
+    );
+    this.updateVirtualFile(tempName, virtualContent);
+    try {
+      const mapped = mappedExpressions[0];
+      if (mapped === undefined) return undefined;
+      const virtualOffset = mapped.virtualOffset + cursorOffset;
+      return this.getCompletions(tempName, virtualOffset);
+    } finally {
+      this.removeVirtualFile(tempName);
+    }
   }
 
   /**

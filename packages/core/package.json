@@ -1,6 +1,6 @@
 {
   "name": "@thtml/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Core HTML template engine for thtml",
   "license": "MIT",
   "author": "thtml contributors",

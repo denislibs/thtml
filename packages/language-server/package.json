@@ -1,6 +1,6 @@
 {
   "name": "@thtml/language-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Language Server Protocol implementation for thtml templates",
   "license": "MIT",
   "author": "thtml contributors",

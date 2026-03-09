@@ -101,7 +101,7 @@ function parseDiagnostics(source: string): Diagnostic[] {
           tok.span.start.column,
           tok.value.length || 1
         ),
-        message: err.message,
+        message: err.userMessage,
         source: "thtml",
         code: "parse-error",
       });

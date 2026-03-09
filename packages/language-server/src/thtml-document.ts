@@ -12,20 +12,31 @@
  */
 
 import { parse, type RootNode, type ChildNode, type Span } from "@thtml/core";
-import { TemplateTypeChecker, type MappedExpression } from "./type-checker.js";
+import {
+  TemplateTypeChecker,
+  type ForScopeVar,
+  type MappedExpression,
+} from "./type-checker.js";
 
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
 
 /**
- * A template expression together with its source position in the .thtml file.
+ * A template expression together with its source position in the .thtml file
+ * and any active `{% for %}` scopes that wrap it.
  */
 interface ExtractedExpression {
   /** Raw expression text, e.g. "user.name" or "items" */
   expression: string;
   /** Byte offset of expression[0] inside the .thtml source */
   thtmlOffset: number;
+  /**
+   * Active for-loop scopes wrapping this expression, ordered outermost first.
+   * Used by {@link TemplateTypeChecker.createVirtualFile} to emit correct loop
+   * variable declarations and choose the right `void (...)` preamble.
+   */
+  forScopes: readonly ForScopeVar[];
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +48,8 @@ export class ThtmlDocument {
   private ast: RootNode | null = null;
   /** Parse/lex error from the last `reparse()` call, if any. */
   private parseError: Error | null = null;
+  /** Frontmatter from the last successful parse. Retained across failures. */
+  private cachedFrontmatter: string | null = null;
 
   /**
    * Expressions extracted from the AST, sorted by `thtmlOffset`.
@@ -186,9 +199,9 @@ export class ThtmlDocument {
     return this.parseError;
   }
 
-  /** Frontmatter TypeScript source extracted from the AST, or `null`. */
+  /** Frontmatter TypeScript source from the last successful parse, or `null`. */
   get frontmatter(): string | null {
-    return this.ast?.frontmatter ?? null;
+    return this.cachedFrontmatter;
   }
 
   /** Current raw .thtml source text. */
@@ -204,6 +217,7 @@ export class ThtmlDocument {
     try {
       this.ast = parse(this.content);
       this.parseError = null;
+      this.cachedFrontmatter = this.ast.frontmatter;
       this.expressions = this.collectExpressions(this.ast);
       this.rebuildVirtualFile();
     } catch (err) {
@@ -213,6 +227,8 @@ export class ThtmlDocument {
       this.mappedExpressions = [];
       // Keep the old virtual file so diagnostics remain visible after a
       // transient syntax error during typing.
+      // cachedFrontmatter is intentionally kept from the last good parse so
+      // that fallback completions still have type context available.
     }
   }
 
@@ -243,7 +259,10 @@ export class ThtmlDocument {
   private collectExpressions(root: RootNode): ExtractedExpression[] {
     const result: ExtractedExpression[] = [];
 
-    const walk = (children: readonly ChildNode[]): void => {
+    const walk = (
+      children: readonly ChildNode[],
+      forScopes: readonly ForScopeVar[]
+    ): void => {
       for (const child of children) {
         switch (child.type) {
           case "Expression":
@@ -254,6 +273,7 @@ export class ThtmlDocument {
                 child.expression,
                 child.span
               ),
+              forScopes,
             });
             break;
 
@@ -264,21 +284,34 @@ export class ThtmlDocument {
                 child.condition,
                 child.span
               ),
+              forScopes,
             });
-            walk(child.consequent);
-            walk(child.alternate);
+            walk(child.consequent, forScopes);
+            walk(child.alternate, forScopes);
             break;
 
-          case "For":
+          case "For": {
+            // The iterable expression itself is evaluated in the outer scope.
             result.push({
               expression: child.iterable,
               thtmlOffset: this.findExpressionOffset(
                 child.iterable,
                 child.span
               ),
+              forScopes,
             });
-            walk(child.body);
+            // Body expressions are evaluated inside the for-loop scope.
+            const innerScopes: readonly ForScopeVar[] = [
+              ...forScopes,
+              {
+                variable: child.variable,
+                indexVariable: child.indexVariable,
+                iterable: child.iterable,
+              },
+            ];
+            walk(child.body, innerScopes);
             break;
+          }
 
           case "Set":
             result.push({
@@ -287,6 +320,7 @@ export class ThtmlDocument {
                 child.expression,
                 child.span
               ),
+              forScopes,
             });
             break;
 
@@ -298,6 +332,7 @@ export class ThtmlDocument {
                   child.contextExpression,
                   child.span
                 ),
+                forScopes,
               });
             }
             break;
@@ -310,7 +345,7 @@ export class ThtmlDocument {
       }
     };
 
-    walk(root.children);
+    walk(root.children, []);
     return result;
   }
 

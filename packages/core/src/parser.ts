@@ -50,6 +50,9 @@ import { type Token, TokenType, tokenize } from "./lexer.js";
 // ---------------------------------------------------------------------------
 
 export class ParseError extends Error {
+  /** Human-readable message without the technical "ParseError at line X" prefix. */
+  public readonly userMessage: string;
+
   constructor(
     message: string,
     public readonly token: Token,
@@ -58,6 +61,7 @@ export class ParseError extends Error {
     const { line, column } = token.span.start;
     super(`ParseError at line ${line}, column ${column}: ${message}`);
     this.name = "ParseError";
+    this.userMessage = message;
   }
 }
 
@@ -365,7 +369,7 @@ export class Parser {
     }
 
     // Consume {% endif %}.
-    this.expectBlock("endif");
+    this.expectBlock("endif", openToken);
     const closeToken = this.advance(); // consume the CLOSE_BLOCK of endif
 
     return {
@@ -452,7 +456,7 @@ export class Parser {
     const body = this.parseChildren("for");
 
     // Consume {% endfor %}.
-    this.expectBlock("endfor");
+    this.expectBlock("endfor", openToken);
     const closeToken = this.advance(); // consume CLOSE_BLOCK of endfor
 
     return {
@@ -671,17 +675,34 @@ export class Parser {
    * Used internally before the caller consumes CLOSE_BLOCK itself to get the
    * end token.  Because we want the caller to hold the CLOSE_BLOCK token for
    * span construction, this method consumes only OPEN_BLOCK and BLOCK_CONTENT.
+   *
+   * @param openedAt - the `{%` token of the corresponding opening block, used
+   *   to produce an "unclosed block at line X" error message when EOF is hit.
    */
-  private expectBlock(expectedKeyword: string): void {
+  private expectBlock(expectedKeyword: string, openedAt?: Token): void {
+    // Derive the opening keyword name ("if", "for") from e.g. "endif", "endfor".
+    const blockName = expectedKeyword.startsWith("end")
+      ? expectedKeyword.slice("end".length)
+      : expectedKeyword;
+
+    // If we hit EOF (or something other than OPEN_BLOCK), the block was never closed.
+    if (this.isEOF() || !this.check(TokenType.OPEN_BLOCK)) {
+      const errToken = openedAt ?? this.current();
+      const hint = openedAt
+        ? `Unclosed {% ${blockName} %} block — expected {% ${expectedKeyword} %}`
+        : `Expected "{% ${expectedKeyword} %}", got ${this.tokenTypeName(this.current().type)} ("${this.current().value}")`;
+      throw new ParseError(hint, errToken, this.source);
+    }
+
     const openToken = this.consume(TokenType.OPEN_BLOCK);
     const contentToken = this.current();
 
     if (contentToken.type !== TokenType.BLOCK_CONTENT) {
-      throw new ParseError(
-        `Expected "{% ${expectedKeyword} %}", but block has no content`,
-        openToken,
-        this.source
-      );
+      const errToken = openedAt ?? openToken;
+      const hint = openedAt
+        ? `Unclosed {% ${blockName} %} block — expected {% ${expectedKeyword} %}`
+        : `Expected "{% ${expectedKeyword} %}", but block has no content`;
+      throw new ParseError(hint, errToken, this.source);
     }
 
     const keyword = contentToken.value.trim();
